@@ -2,6 +2,7 @@ import io
 import re
 from flask import Flask, request
 import telebot
+from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, ForceReply
 from PIL import Image
 
 app = Flask(__name__)
@@ -11,6 +12,20 @@ bot = telebot.TeleBot(BOT_TOKEN, threaded=False)
 
 # User-er target KB temporary store korar jonno
 user_targets = {}
+
+def get_rating_keyboard():
+    """User-er kach theke 1-5 Star Rating newar Inline Buttons"""
+    markup = InlineKeyboardMarkup(row_width=5)
+    buttons = [
+        InlineKeyboardButton("1⭐", callback_data="rate_1"),
+        InlineKeyboardButton("2⭐", callback_data="rate_2"),
+        InlineKeyboardButton("3⭐", callback_data="rate_3"),
+        InlineKeyboardButton("4⭐", callback_data="rate_4"),
+        InlineKeyboardButton("5⭐", callback_data="rate_5")
+    ]
+    markup.add(*buttons)
+    return markup
+
 
 def compress_to_target_kb(image_bytes, target_kb):
     """Chobir quality ebong resolution adjust kore exact target KB-er niche anar function"""
@@ -31,7 +46,7 @@ def compress_to_target_kb(image_bytes, target_kb):
             output.seek(0)
             return output, round(output.tell() / 1024, 2)
             
-    # Step 2: Jodi khub choto KB (jemon 10KB-20KB) chay, tahole dimension resize kora
+    # Step 2: Jodi khub choto KB chay, tahole dimension resize kora
     width, height = img.size
     while output.tell() > target_bytes and width > 100 and height > 100:
         width = int(width * 0.85)
@@ -63,23 +78,62 @@ def process_and_send_photo(chat_id, file_id, target_kb, reply_to_id):
         caption = (
             f"✅ **Done! Target: {target_kb} KB**\n"
             f"📉 আগের সাইজ: `{orig_kb} KB`\n"
-            f"⚡ বর্তমান সাইজ: `{final_kb} KB`"
+            f"⚡ বর্তমান সাইজ: `{final_kb} KB`\n\n"
+            f"👨‍💻 *Developed by Saifur Rahaman*"
         )
         
         # Preview-er jonno Photo hisebe pathano
         bot.send_photo(chat_id, output, caption=caption, parse_mode="Markdown")
         
-        # Exact KB thik rakhar jonno Document/File hisebeo pathano
+        # Exact KB thik rakhar jonno Document/File hisebe pathano + Rating Buttons
         output.seek(0)
+        doc_caption = (
+            f"📁 **আসল ফাইল ({final_kb} KB)** — ডাউনলোড করে ব্যবহার করুন।\n\n"
+            f"✨ এই বটটি **Saifur Rahaman** ডেভেলপ করেছেন।\n"
+            f"👇 বটটির কাজ আপনার কেমন লেগেছে? নিচে রেটিং দিন:"
+        )
         bot.send_document(
             chat_id, 
             output, 
             visible_file_name=f"photo_{int(final_kb)}kb.jpg",
-            caption=f"📁 আসল ফাইল ({final_kb} KB) — ডাউনলোড করে ব্যবহার করুন।"
+            caption=doc_caption,
+            reply_markup=get_rating_keyboard(),
+            parse_mode="Markdown"
         )
         bot.delete_message(chat_id, wait_msg.message_id)
     except Exception as e:
         bot.edit_message_text(f"❌ সমস্যা হয়েছে: {str(e)}", chat_id, wait_msg.message_id)
+
+
+# User Rating button-e click korle ja hobe
+@bot.callback_query_handler(func=lambda call: call.data.startswith('rate_'))
+def handle_rating(call):
+    stars = call.data.split('_')[1]
+    star_emojis = "⭐" * int(stars)
+    
+    # Screen-e popup notification dekhabe
+    bot.answer_callback_query(
+        call.id, 
+        f"ধন্যবাদ! আপনি {stars} Star রেটিং দিয়েছেন। ❤️", 
+        show_alert=True
+    )
+    
+    # Button sorie Thank you message ebong Developer credit dekhabe
+    updated_caption = (
+        f"📁 ফাইলটি সফলভাবে তৈরি হয়েছে!\n\n"
+        f"🌟 **আপনার রেটিং:** {star_emojis} ({stars}/5)\n"
+        f"🙏 আপনার মূল্যবান মতামতের জন্য অসংখ্য ধন্যবাদ!\n\n"
+        f"👨‍💻 **Developed by:** Saifur Rahaman"
+    )
+    try:
+        bot.edit_message_caption(
+            caption=updated_caption,
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            parse_mode="Markdown"
+        )
+    except Exception:
+        pass
 
 
 # Vercel-er sob URL route handle korar jonno
@@ -101,7 +155,7 @@ def catch_all(path):
         bot.set_webhook(url=webhook_url)
         return f"Webhook successfully connected to: {webhook_url}", 200
 
-    return "Photo Optimizer Bot is Running!", 200
+    return "Photo Optimizer Bot (Developed by Saifur Rahaman) is Running!", 200
 
 
 @bot.message_handler(commands=['start'])
@@ -110,12 +164,12 @@ def send_welcome(message):
         "👋 **হ্যালো! Photo Optimizer Bot-এ স্বাগতম।**\n\n"
         "আপনি যেকোনো ছবি আপনার পছন্দমতো সাইজে (KB) ছোট করতে পারবেন:\n\n"
         "১️⃣ প্রথমে কত KB চান তা লিখুন (যেমন: `50` বা `50kb`), তারপর ছবি পাঠান।\n"
-        "২️⃣ অথবা সরাসরি ছবি পাঠান, বট আপনাকে সাইজ জিজ্ঞেস করবে!"
+        "২️⃣ অথবা সরাসরি ছবি পাঠান, বট আপনাকে সাইজ জিজ্ঞেস করবে!\n\n"
+        "👨‍💻 *Developed by Saifur Rahaman*"
     )
     bot.reply_to(message, welcome_text, parse_mode="Markdown")
 
 
-# User jokhon KB likhe message pathabe (jemon: "50", "50kb", "100 KB")
 @bot.message_handler(func=lambda message: message.content_type == 'text' and not message.text.startswith('/'))
 def handle_text_kb(message):
     match = re.search(r'(\d+)', message.text)
@@ -130,14 +184,13 @@ def handle_text_kb(message):
 
     user_targets[message.chat.id] = target_kb
 
-    # Case 1: User age chobi pathiyeche, ekhon bot-er proshner reply-te KB likhlo
+    # User age chobi pathiye pore reply-te KB likhle
     if message.reply_to_message and message.reply_to_message.reply_to_message:
         orig_msg = message.reply_to_message.reply_to_message
         if orig_msg.content_type == 'photo':
             process_and_send_photo(message.chat.id, orig_msg.photo[-1].file_id, target_kb, orig_msg.message_id)
             return
 
-    # Case 2: User shudhu target KB set korlo
     bot.reply_to(
         message, 
         f"✅ **Target Set: {target_kb} KB**\nএখন আপনার ছবি (Photo) পাঠান, আমি সেটি {target_kb} KB-এর মধ্যে করে দিচ্ছি!", 
@@ -145,28 +198,23 @@ def handle_text_kb(message):
     )
 
 
-# User jokhon Photo pathabe
 @bot.message_handler(content_types=['photo'])
 def handle_photo(message):
     target_kb = None
     
-    # Chobir caption-e KB lekha ache kina check kora
     if message.caption:
         match = re.search(r'(\d+)', message.caption)
         if match:
             target_kb = int(match.group(1))
             user_targets[message.chat.id] = target_kb
 
-    # Age theke KB bolle seta neবে
     if not target_kb:
         target_kb = user_targets.get(message.chat.id)
 
-    # Jodi KB bola thake, sorasori optimize kore debe
     if target_kb:
         process_and_send_photo(message.chat.id, message.photo[-1].file_id, target_kb, message.message_id)
     else:
-        # Jodi KB bola na thake, tahole ForceReply diye user-ke jiggesh korbe
-        markup = telebot.types.ForceReply(selective=False, input_field_placeholder="যেমন: 50 বা 100")
+        markup = ForceReply(selective=False, input_field_placeholder="যেমন: 50 বা 100")
         bot.reply_to(
             message, 
             "📏 **ছবিটি কত KB করতে চান?**\nসংখ্যাটি লিখে সেন্ড করুন (যেমন: `50`):", 

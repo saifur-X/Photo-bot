@@ -7,11 +7,36 @@ from PIL import Image
 
 app = Flask(__name__)
 
+# Bot Token ebong Admin ID
 BOT_TOKEN = "8135991995:AAHiHmqR7_JvF2t3aeE2yoFjAwsdwXR6uQU"
+ADMIN_ID = 8057210513
+
 bot = telebot.TeleBot(BOT_TOKEN, threaded=False)
 
 # User-er target KB temporary store korar jonno
 user_targets = {}
+
+def notify_admin(user, action_text):
+    """অ্যাডমিনকে ইউজারের তথ্যের নোটিফিকেশন পাঠানোর ফাংশন"""
+    # আপনি নিজে ব্যবহার করলে নিজেকে বারবার মেসেজ পাঠাবে না, অন্য কেউ ব্যবহার করলেই পাঠাবে
+    if user.id == ADMIN_ID:
+        return
+        
+    full_name = f"{user.first_name or ''} {user.last_name or ''}".strip()
+    username = f"@{user.username}" if user.username else "নেই"
+    
+    msg = (
+        f"🔔 **Bot Activity Alert!**\n\n"
+        f"👤 **নাম:** {full_name}\n"
+        f"🔗 **ইউজারনেম:** {username}\n"
+        f"🆔 **User ID:** `{user.id}`\n"
+        f"📌 **অ্যাকশন:** {action_text}"
+    )
+    try:
+        bot.send_message(ADMIN_ID, msg, parse_mode="Markdown")
+    except Exception:
+        pass
+
 
 def get_rating_keyboard():
     """User-er kach theke 1-5 Star Rating newar Inline Buttons"""
@@ -61,7 +86,7 @@ def compress_to_target_kb(image_bytes, target_kb):
     return output, round(output.tell() / 1024, 2)
 
 
-def process_and_send_photo(chat_id, file_id, target_kb, reply_to_id):
+def process_and_send_photo(chat_id, user, file_id, target_kb, reply_to_id):
     wait_msg = bot.send_message(
         chat_id, 
         f"⏳ ছবিটি **{target_kb} KB**-তে তৈরি করা হচ্ছে, একটু অপেক্ষা করুন...", 
@@ -101,6 +126,10 @@ def process_and_send_photo(chat_id, file_id, target_kb, reply_to_id):
             parse_mode="Markdown"
         )
         bot.delete_message(chat_id, wait_msg.message_id)
+        
+        # Admin-ke notification pathano
+        notify_admin(user, f"ছবি অপ্টিমাইজ করেছে ({orig_kb} KB ➡️ {final_kb} KB, Target: {target_kb} KB)")
+
     except Exception as e:
         bot.edit_message_text(f"❌ সমস্যা হয়েছে: {str(e)}", chat_id, wait_msg.message_id)
 
@@ -130,6 +159,18 @@ def handle_rating(call):
             caption=updated_caption,
             chat_id=call.message.chat.id,
             message_id=call.message.message_id,
+            parse_mode="Markdown"
+        )
+    except Exception:
+        pass
+        
+    # Admin-ke Rating notification pathano (apni nije click korleo test hisebe dekhabe)
+    full_name = f"{call.from_user.first_name or ''} {call.from_user.last_name or ''}".strip()
+    username = f"@{call.from_user.username}" if call.from_user.username else "নেই"
+    try:
+        bot.send_message(
+            ADMIN_ID, 
+            f"🌟 **নতুন রেটিং এসেছে!**\n👤 **ইউজার:** {full_name} ({username})\n🆔 **ID:** `{call.from_user.id}`\n⭐ **রেটিং:** {star_emojis} ({stars}/5)",
             parse_mode="Markdown"
         )
     except Exception:
@@ -168,6 +209,9 @@ def send_welcome(message):
         "👨‍💻 *Developed by Saifur Rahaman*"
     )
     bot.reply_to(message, welcome_text, parse_mode="Markdown")
+    
+    # Notun user start korle Admin-ke janabe
+    notify_admin(message.from_user, "বট `/start` করেছে")
 
 
 @bot.message_handler(func=lambda message: message.content_type == 'text' and not message.text.startswith('/'))
@@ -188,7 +232,7 @@ def handle_text_kb(message):
     if message.reply_to_message and message.reply_to_message.reply_to_message:
         orig_msg = message.reply_to_message.reply_to_message
         if orig_msg.content_type == 'photo':
-            process_and_send_photo(message.chat.id, orig_msg.photo[-1].file_id, target_kb, orig_msg.message_id)
+            process_and_send_photo(message.chat.id, message.from_user, orig_msg.photo[-1].file_id, target_kb, orig_msg.message_id)
             return
 
     bot.reply_to(
@@ -212,7 +256,7 @@ def handle_photo(message):
         target_kb = user_targets.get(message.chat.id)
 
     if target_kb:
-        process_and_send_photo(message.chat.id, message.photo[-1].file_id, target_kb, message.message_id)
+        process_and_send_photo(message.chat.id, message.from_user, message.photo[-1].file_id, target_kb, message.message_id)
     else:
         markup = ForceReply(selective=False, input_field_placeholder="যেমন: 50 বা 100")
         bot.reply_to(
